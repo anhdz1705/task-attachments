@@ -56,15 +56,14 @@ export const ChatBox: React.FC = () => {
         const state = channel.presenceState<{ online_at: string }>();
         setOnlineUsers(Object.keys(state));
       })
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        (payload) => {
-          console.log('Realtime DB event caught:', payload);
-          // Bắt tin nhắn insert về DB rồi kéo lại lịch sử cho chắc chắn
-          fetchHistory();
-        }
-      )
+      .on('broadcast', { event: 'message' }, ({ payload }: { payload: Message }) => {
+        // Có người khác bắn Broadcast là mình nhận được NHANH TỨC THỜI (độ trễ 0ms)
+        setMessages((prev) => {
+          // Check trùng lặp
+          if (prev.find(m => m.id === payload.id)) return prev;
+          return [...prev, payload];
+        });
+      })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await channel.track({ online_at: new Date().toISOString() });
@@ -86,7 +85,7 @@ export const ChatBox: React.FC = () => {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !userName) return;
+    if (!newMessage.trim() || !userName || !channelRef.current) return;
 
     const content = newMessage.trim();
     setNewMessage(''); // Xoá input ngay lập tức
@@ -100,17 +99,22 @@ export const ChatBox: React.FC = () => {
     };
     setMessages(prev => [...prev, tempMsg]);
 
+    // Bắn Broadcast qua Socket cho NGƯỜI KHÁC thấy liền lập tức (0ms delay)
+    await channelRef.current.send({
+      type: 'broadcast',
+      event: 'message',
+      payload: tempMsg,
+    });
+
     try {
-      // Gọi lên Backend 
+      // Chạy ngầm việc gửi lên Backend để lưu cục Database để chống mất dữ liệu khi F5
       await apiFetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_name: userName, content }),
       });
-      // Bắn xong kéo lại từ DB về 1 lượt để lấy ID chuẩn do DB cấp
-      fetchHistory();
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Lỗi khi lưu vào DB:', error);
     }
   };
 
