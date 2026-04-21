@@ -21,19 +21,20 @@ export const ChatBox: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
 
+  const fetchHistory = async () => {
+    try {
+      const res = await apiFetch('/api/messages');
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data);
+      }
+    } catch (e) {
+      console.error('Failed to load chat history:', e);
+    }
+  };
+
   useEffect(() => {
     // Kéo tin nhắn từ database khi khởi động mạng
-    const fetchHistory = async () => {
-      try {
-        const res = await apiFetch('/api/messages');
-        if (res.ok) {
-          const data = await res.json();
-          setMessages(data);
-        }
-      } catch (e) {
-        console.error('Failed to load chat history:', e);
-      }
-    };
     fetchHistory();
   }, []);
 
@@ -57,10 +58,11 @@ export const ChatBox: React.FC = () => {
       })
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
+        { event: '*', schema: 'public', table: 'messages' },
         (payload) => {
-          // Bắt tin nhắn insert về DB rồi vẽ lên màn hình
-          setMessages((prev) => [...prev, payload.new as Message]);
+          console.log('Realtime DB event caught:', payload);
+          // Bắt tin nhắn insert về DB rồi kéo lại lịch sử cho chắc chắn
+          fetchHistory();
         }
       )
       .subscribe(async (status) => {
@@ -89,6 +91,15 @@ export const ChatBox: React.FC = () => {
     const content = newMessage.trim();
     setNewMessage(''); // Xoá input ngay lập tức
 
+    // Hiển thị ngay lập tức lên màn hình của MÌNH (Optimistic Update)
+    const tempMsg: Message = {
+      id: crypto.randomUUID(),
+      user_name: userName,
+      content: content,
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, tempMsg]);
+
     try {
       // Gọi lên Backend 
       await apiFetch('/api/messages', {
@@ -96,7 +107,8 @@ export const ChatBox: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_name: userName, content }),
       });
-      // Không cần tự `.send` hay setMessages tĩnh vì lưới Realtime ở useEffect nó sẽ tự bắt
+      // Bắn xong kéo lại từ DB về 1 lượt để lấy ID chuẩn do DB cấp
+      fetchHistory();
     } catch (error) {
       console.error('Error sending message:', error);
     }
