@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #5E72E4;
+  --color-success: #2DCE89;
+  --color-warning: #FB6340;
+  --color-text-main: #32325D;
+  --color-text-muted: #8898AA;
+  --color-border: #E1E8ED;
+  --color-bg-main: #F4F7F9;
+  
+  --font-sans: 'Helvetica Neue', Arial, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-[var(--color-bg-main)] text-[var(--color-text-main)] font-sans;
+  }
+}
+
+@layer components {
+  .geo-card {
+    @apply bg-white border border-[var(--color-border)] p-6 rounded-none flex flex-col;
+  }
+  
+  .geo-card-title {
+    @apply text-[12px] uppercase tracking-[1px] text-[var(--color-text-muted)] mb-4 font-bold;
+  }
+  
+  .geo-btn-primary {
+    @apply bg-[var(--color-brand)] text-white px-5 py-2.5 text-[13px] font-semibold border-none rounded-none cursor-pointer transition-opacity hover:opacity-90 disabled:opacity-50;
+  }
+  
+  .geo-nav-item {
+    @apply px-4 py-2.5 text-sm text-[#525F7F] border-l-3 border-transparent cursor-pointer transition-all;
+  }
+  
+  .geo-nav-item-active {
+    @apply bg-[#F6F9FC] text-[var(--color-brand)] border-l-[var(--color-brand)] font-semibold;
+  }
+}
