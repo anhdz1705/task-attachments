@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getSupabase } from '../lib/supabase.ts';
+import { apiFetch } from '../lib/api.ts';
 import { Send, MessageSquare } from 'lucide-react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-interface BroadcastMessage {
+interface Message {
   id: string;
   user_name: string;
   content: string;
@@ -11,7 +12,7 @@ interface BroadcastMessage {
 }
 
 export const ChatBox: React.FC = () => {
-  const [messages, setMessages] = useState<BroadcastMessage[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [userName, setUserName] = useState<string>(localStorage.getItem('chat-nickname') || '');
   const [isSettingName, setIsSettingName] = useState(!localStorage.getItem('chat-nickname'));
@@ -19,6 +20,22 @@ export const ChatBox: React.FC = () => {
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
+
+  useEffect(() => {
+    // Kéo tin nhắn từ database khi khởi động mạng
+    const fetchHistory = async () => {
+      try {
+        const res = await apiFetch('/api/messages');
+        if (res.ok) {
+          const data = await res.json();
+          setMessages(data);
+        }
+      } catch (e) {
+        console.error('Failed to load chat history:', e);
+      }
+    };
+    fetchHistory();
+  }, []);
 
   useEffect(() => {
     if (!userName) return;
@@ -34,13 +51,18 @@ export const ChatBox: React.FC = () => {
     });
 
     channel
-      .on('broadcast', { event: 'message' }, ({ payload }: { payload: BroadcastMessage }) => {
-        setMessages(prev => [...prev, payload]);
-      })
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState<{ online_at: string }>();
         setOnlineUsers(Object.keys(state));
       })
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          // Bắt tin nhắn insert về DB rồi vẽ lên màn hình
+          setMessages((prev) => [...prev, payload.new as Message]);
+        }
+      )
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await channel.track({ online_at: new Date().toISOString() });
@@ -62,23 +84,22 @@ export const ChatBox: React.FC = () => {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !userName || !channelRef.current) return;
+    if (!newMessage.trim() || !userName) return;
 
-    const msg: BroadcastMessage = {
-      id: crypto.randomUUID(),
-      user_name: userName,
-      content: newMessage.trim(),
-      created_at: new Date().toISOString(),
-    };
+    const content = newMessage.trim();
+    setNewMessage(''); // Xoá input ngay lập tức
 
-    setNewMessage('');
-    setMessages(prev => [...prev, msg]);
-
-    await channelRef.current.send({
-      type: 'broadcast',
-      event: 'message',
-      payload: msg,
-    });
+    try {
+      // Gọi lên Backend 
+      await apiFetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_name: userName, content }),
+      });
+      // Không cần tự `.send` hay setMessages tĩnh vì lưới Realtime ở useEffect nó sẽ tự bắt
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
   };
 
   const handleSetName = (e: React.FormEvent) => {
